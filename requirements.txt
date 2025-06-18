@@ -1,7 +1,8 @@
 streamlit
+pymupdf
 sentence-transformers
 torch
-PyMuPDF
+transformers
+huggingface-hub
+pillow
 pytesseract
-Pillow
-requests

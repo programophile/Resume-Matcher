@@ -1,10 +1,11 @@
 import streamlit as st
 import fitz  # PyMuPDF
 from sentence_transformers import SentenceTransformer, util
-import requests
+from huggingface_hub import InferenceClient
 from PIL import Image
 import pytesseract
 import io
+import os
 
 # -------------------------------
 # CONFIG
@@ -12,6 +13,12 @@ import io
 HF_API_TOKEN = st.secrets["hf_token"]
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Initialize Hugging Face InferenceClient once globally
+client = InferenceClient(
+    provider="featherless-ai",
+    api_key=HF_API_TOKEN,
+)
 
 # -------------------------------
 # PDF / Image Text Extraction
@@ -29,33 +36,27 @@ def extract_text_from_image(image_bytes):
     return text.strip()
 
 # -------------------------------
-# Hugging Face Suggestions
+# Hugging Face Suggestions (using InferenceClient)
 # -------------------------------
 def get_hf_resume_suggestions(resume_text, target_job):
-    API_URL = "https://api-inference.huggingface.co/models/distilgpt2"
-    headers = {}
-    if HF_API_TOKEN:
-        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
-
     prompt = (
         f"Here is a resume text:\n{resume_text}\n\n"
         f"I want to apply for the job: {target_job}\n"
         f"Please suggest improvements to the resume to better match this job."
     )
 
-    payload = {
-        "inputs": prompt,
-        "parameters": {"max_new_tokens": 150, "temperature": 0.7},
-    }
-
-    response = requests.post(API_URL, headers=headers, json=payload)
-
-    if response.status_code == 200:
-        result = response.json()
-        generated_text = result[0].get('generated_text', '')
-        return generated_text.strip()
-    else:
-        return f"Error from Hugging Face API: {response.status_code} - {response.text}"
+    try:
+        completion = client.chat.completions.create(
+            model="mistralai/Magistral-Small-2506",
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+        )
+        # The response message text is here:
+        response_message = completion.choices[0].message["content"]
+        return response_message.strip()
+    except Exception as e:
+        return f"Error contacting Hugging Face API: {str(e)}"
 
 # -------------------------------
 # Streamlit App UI
