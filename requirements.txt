@@ -1,4 +1,4 @@
 streamlit
 sentence-transformers
 scikit-learn
-#jjslkjl
+PyMuPDF
