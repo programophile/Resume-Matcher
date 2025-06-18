@@ -1,4 +1,7 @@
 streamlit
 sentence-transformers
-scikit-learn
+torch
 PyMuPDF
+pytesseract
+Pillow
+requests

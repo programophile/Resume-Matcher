@@ -1,57 +1,110 @@
 import streamlit as st
 import fitz  # PyMuPDF
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-import re
-from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+from sentence_transformers import SentenceTransformer, util
+import requests
+from PIL import Image
+import pytesseract
+import io
 
-st.title("🧠 Resume Matcher")
-
-uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
-job_description = st.text_area("Paste the job description here")
+# -------------------------------
+# CONFIG
+# -------------------------------
+HF_API_TOKEN = st.secrets["hf_token"]
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-def extract_text_from_pdf(file):
+# -------------------------------
+# PDF / Image Text Extraction
+# -------------------------------
+def extract_text_from_pdf(uploaded_file):
+    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
     text = ""
-    pdf = fitz.open(stream=file.read(), filetype="pdf")
-    for page in pdf:
+    for page in doc:
         text += page.get_text()
-    return text
+    return text.strip()
 
-def extract_keywords(text):
-    # Lowercase and extract words with 3+ letters
-    words = re.findall(r'\b[a-z]{3,}\b', text.lower())
-    # Remove common English stopwords
-    keywords = set(word for word in words if word not in ENGLISH_STOP_WORDS)
-    return keywords
+def extract_text_from_image(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes))
+    text = pytesseract.image_to_string(image)
+    return text.strip()
 
-if uploaded_file is not None and job_description.strip() != "":
-    resume_text = extract_text_from_pdf(uploaded_file)
+# -------------------------------
+# Hugging Face Suggestions
+# -------------------------------
+def get_hf_resume_suggestions(resume_text, target_job):
+    API_URL = "https://api-inference.huggingface.co/models/gpt2"
 
-    # Encode texts to embeddings
-    resume_embedding = model.encode(resume_text, convert_to_tensor=True)
-    jd_embedding = model.encode(job_description, convert_to_tensor=True)
+    headers = {}
+    if HF_API_TOKEN:
+        headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
 
-    # Calculate cosine similarity score
-    score = cosine_similarity(
-        [resume_embedding.cpu().numpy()],
-        [jd_embedding.cpu().numpy()]
-    )[0][0]
+    prompt = (
+        f"Here is a resume text:\n{resume_text}\n\n"
+        f"I want to apply for the job: {target_job}\n"
+        f"Please suggest improvements to the resume to better match this job."
+    )
 
-    st.success(f"✅ Similarity Score: {score:.2f}")
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 150, "temperature": 0.7},
+    }
 
-    # Extract and compare keywords
-    resume_keywords = extract_keywords(resume_text)
-    jd_keywords = extract_keywords(job_description)
-    common_keywords = resume_keywords.intersection(jd_keywords)
+    response = requests.post(API_URL, headers=headers, json=payload)
 
-    # Show match explanation
-    if common_keywords:
-        st.markdown("### 🔍 Match Explanation:")
-        st.write(f"The resume and job description share these key terms:")
-        st.write(", ".join(sorted(common_keywords)))
+    if response.status_code == 200:
+        result = response.json()
+        generated_text = result[0].get('generated_text', '')
+        return generated_text.strip()
     else:
-        st.write("No direct keyword overlap found, but semantic similarity still exists!")
+        return f"Error from Hugging Face API: {response.status_code} - {response.text}"
+
+# -------------------------------
+# Streamlit App UI
+# -------------------------------
+st.set_page_config(page_title="Resume Matcher", layout="centered")
+st.title("📄 Resume Matcher & Career Helper")
+
+uploaded_file = st.file_uploader("Upload your resume (PDF or Image)", type=["pdf", "png", "jpg", "jpeg"])
+job_description = st.text_input("Enter your target job title (e.g. Data Scientist)")
+
+if uploaded_file and job_description.strip():
+    file_type = uploaded_file.type
+
+    if "pdf" in file_type:
+        resume_text = extract_text_from_pdf(uploaded_file)
+    elif "image" in file_type:
+        resume_text = extract_text_from_image(uploaded_file.read())
+    else:
+        st.error("Unsupported file format.")
+        st.stop()
+
+    if not resume_text:
+        st.warning("No text could be extracted from the file.")
+        st.stop()
+
+    # Display extracted resume
+    with st.expander("📝 Extracted Resume Text"):
+        st.write(resume_text)
+
+    # Similarity score
+    embedding_resume = model.encode(resume_text, convert_to_tensor=True)
+    embedding_job = model.encode(job_description, convert_to_tensor=True)
+    score = util.cos_sim(embedding_resume, embedding_job).item()
+
+    st.success(f"🧠 Match Score: {score:.2f} (closer to 1 is better)")
+
+    if score > 0.7:
+        st.info("✅ Your resume is a good match for the target job!")
+    elif score > 0.4:
+        st.info("🛠️ Your resume somewhat matches, but can be improved.")
+    else:
+        st.info("⚠️ Your resume doesn't match well. Consider revising it.")
+
+    # Suggestions via Hugging Face
+    with st.spinner("Getting suggestions..."):
+        st.markdown("### 💡 Suggestions to Improve Your Resume")
+        suggestions = get_hf_resume_suggestions(resume_text, job_description)
+        st.write(suggestions)
+
 else:
-    st.info("Please upload a PDF resume and enter a job description to see the match.")
+    st.info("Please upload your resume and enter a job title to continue.")
