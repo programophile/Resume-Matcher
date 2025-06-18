@@ -12,7 +12,7 @@ st.write("Upload your resume (PDF) and paste job description to see how well you
 # Upload resume file
 resume_file = st.file_uploader("📄 Upload your Resume (PDF only)", type=["pdf"])
 
-# Job description input
+
 job_description = st.text_area("📋 Paste Job Description")
 
 # Function to extract text from PDF
