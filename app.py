@@ -32,8 +32,7 @@ def extract_text_from_image(image_bytes):
 # Hugging Face Suggestions
 # -------------------------------
 def get_hf_resume_suggestions(resume_text, target_job):
-    API_URL = "https://api-inference.huggingface.co/models/openai-community/gpt2"
-
+    API_URL = "https://api-inference.huggingface.co/models/distilgpt2"
     headers = {}
     if HF_API_TOKEN:
         headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
